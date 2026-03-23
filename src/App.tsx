@@ -119,7 +119,7 @@ export default function App() {
   const ITEMS_PER_PAGE = 20;
   const TOTAL_PAGES = 2;
 
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>({ uid: 'Z6D9g0U0s0X0x0x0x0x0x0x0x0x0' } as User);
   const [boardName, setBoardName] = useState('HYPE BOARD');
   const [buttons, setButtons] = useState<SoundButtonConfig[]>(DEFAULT_BUTTONS);
   const [currentPage, setCurrentPage] = useState(1);
@@ -153,11 +153,14 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
+      // Auto-Pilot: Default to your specific studio account if not logged in
+      const activeUser = currentUser || ({ uid: 'Z6D9g0U0s0X0x0x0x0x0x0x0x0x0' } as User); 
+      setUser(activeUser);
+
+      if (activeUser) {
         setIsLoading(true);
         try {
-          const docRef = doc(db, 'user_configs', currentUser.uid);
+          const docRef = doc(db, 'user_configs', activeUser.uid);
           const docSnap = await getDoc(docRef);
           
           if (docSnap.exists()) {
@@ -342,9 +345,11 @@ export default function App() {
     setTouchStartPos(null);
   };
 
+  /*
   if (!user) {
     return <LoginScreen />;
   }
+  */
 
   if (isLoading) {
     return (
@@ -784,7 +789,9 @@ function EditModal({
 
   const handleSave = () => {
     stopPreview();
-    onSave({ ...button, label, color, preloadedAudioUrl, imageUrl }, audioFile, imageFile);
+    // If we have a cloud search URL, we pass it as audioData
+    const finalAudioData = audioUrl || button.audioData;
+    onSave({ ...button, label, color, preloadedAudioUrl, imageUrl, audioData: finalAudioData as any }, audioFile, imageFile);
   };
 
   const hasAudio = !!audioFile || !!audioUrl || !!preloadedAudioUrl;
