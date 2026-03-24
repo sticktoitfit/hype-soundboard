@@ -295,13 +295,15 @@ export default function App() {
   };
 
   const handleSaveEdit = async (updatedBtn: SoundButtonConfig, newAudioFile: File | null, newImageFile: File | null) => {
+    // 1. Close modal IMMEDIATELY for best UX
+    setEditingButton(null);
+
     try {
-      // 1. Prepare candidate URLs (optimistic approach for search results)
       let cloudAudioUrl = updatedBtn.audioData as unknown as string;
       let cloudImageUrl = updatedBtn.imageUrl;
 
       // 2. Perform background uploads if necessary
-      if (user) {
+      if (user && (newAudioFile || newImageFile)) {
         if (newAudioFile) {
           const storageRef = ref(storage, `sounds/${user.uid}/button-${updatedBtn.id}-${Date.now()}`);
           await uploadBytes(storageRef, newAudioFile);
@@ -314,22 +316,17 @@ export default function App() {
         }
       }
 
-      // 3. Update the button and local state
+      // 3. Update local state
       const finalBtn = { ...updatedBtn, audioData: cloudAudioUrl as any, imageUrl: cloudImageUrl };
-      const newButtons = buttons.map((b) => (b.id === finalBtn.id ? finalBtn : b));
+      const updatedButtonsList = buttons.map((b) => (b.id === finalBtn.id ? finalBtn : b));
       
-      // Update UI matching the new data
-      setButtons(newButtons);
+      setButtons(updatedButtonsList);
       
-      // 4. Sync to DB (unawaited for faster UI feel, handled within saveBoardData)
-      saveBoardData(newButtons).catch(e => console.error("Background sync failed:", e));
+      // 4. Sync to DB in background
+      saveBoardData(updatedButtonsList).catch(e => console.error("Background sync failed:", e));
       
     } catch (e) {
-      console.error('Failed to process button edit', e);
-      alert('Failed to save changes. Please try again.');
-    } finally {
-      // 5. Always close the modal to regain control
-      setEditingButton(null);
+      console.error('Failed to process button edit in background', e);
     }
   };
 
