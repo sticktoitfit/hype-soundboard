@@ -295,7 +295,10 @@ export default function App() {
   };
 
   const handleSaveEdit = async (updatedBtn: SoundButtonConfig, newAudioFile: File | null, newImageFile: File | null) => {
-    // 1. Close modal IMMEDIATELY for best UX
+    // Debugging only: will remove after verification
+    console.log("DEBUG: handleSaveEdit called");
+    
+    // 1. Close modal IMMEDIATELY
     setEditingButton(null);
 
     try {
