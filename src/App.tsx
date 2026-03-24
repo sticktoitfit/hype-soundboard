@@ -161,9 +161,14 @@ export default function App() {
         setIsLoading(true);
         try {
           const docRef = doc(db, 'user_configs', activeUser.uid);
-          const docSnap = await getDoc(docRef);
           
-          if (docSnap.exists()) {
+          // Race between Firebase fetch and a 5-second timeout
+          const docSnap = await Promise.race([
+            getDoc(docRef),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase timeout')), 5000))
+          ]) as any;
+          
+          if (docSnap && docSnap.exists()) {
             const data = docSnap.data();
             const stored = data.buttons as SoundButtonConfig[];
             setBoardName(data.boardName || 'HYPE BOARD');
@@ -178,7 +183,7 @@ export default function App() {
               const defaultBtn = DEFAULT_BUTTONS[i];
               let updatedLabel = btn.label;
 
-              // Automatic migration: If the existing label resembles the old ugly generation, auto-upgrade it to the new one.
+              // Automatic migration
               const isUglyOldLabel = btn.label.includes('Voicy') || btn.label.includes('59359677') || btn.label.match(/^Baby Want A /) || btn.label === 'Hes On Fire' || btn.label === 'Ronnie Lightweight Baby';
               
               if (isUglyOldLabel) {
@@ -186,7 +191,6 @@ export default function App() {
               }
 
               if (!btn.audioData && !btn.preloadedAudioUrl && defaultBtn.preloadedAudioUrl) {
-                // Button is completely empty but there's a default available at this index
                 return {
                   ...btn,
                   preloadedAudioUrl: defaultBtn.preloadedAudioUrl,
@@ -199,12 +203,12 @@ export default function App() {
             });
             setButtons(merged);
           } else {
-            // If no config exists for the user, save the default buttons
-            await setDoc(docRef, { buttons: DEFAULT_BUTTONS });
+            console.log("No config found, using defaults");
             setButtons(DEFAULT_BUTTONS);
           }
         } catch (e) {
-          console.error('Failed to load board from Firebase', e);
+          console.error('Board initialization failed (likely offline/timeout):', e);
+          setButtons(DEFAULT_BUTTONS); // Fail-safe to default buttons
         } finally {
           setIsLoading(false);
         }
@@ -736,11 +740,24 @@ function EditModal({
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setIsSearching(true);
+    setSearchResults([]); // Reset previous results
+
     try {
       const targetUrl = `https://www.myinstants.com/en/search/?name=${encodeURIComponent(searchQuery)}`;
-      const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
-      const data = await response.json();
-      const html = data.contents;
+      
+      // Try standard allorigins proxy first
+      let response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
+      let data = await response.json();
+      let html = data.contents;
+      
+      // Fallback: If contents is empty or missing, try raw mode
+      if (!html) {
+        console.warn("AllOrigins standard proxy empty, trying raw fallback...");
+        response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
+        html = await response.text();
+      }
+
+      if (!html) throw new Error("Could not fetch search results");
       
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
@@ -758,9 +775,15 @@ function EditModal({
           });
         }
       });
+      
+      if (results.length === 0) {
+        console.log("No sounds found for query:", searchQuery);
+      }
+
       setSearchResults(results.slice(0, 15));
     } catch (error) {
       console.error('Search failed', error);
+      alert('Sound search is currently unavailable. Please try again later or upload your own file.');
     } finally {
       setIsSearching(false);
     }
