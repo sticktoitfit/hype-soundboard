@@ -291,26 +291,42 @@ export default function App() {
   };
 
   const handleSaveEdit = async (updatedBtn: SoundButtonConfig, newAudioFile: File | null, newImageFile: File | null) => {
-    let cloudAudioUrl = updatedBtn.audioData as unknown as string;
-    let cloudImageUrl = updatedBtn.imageUrl;
+    try {
+      // 1. Prepare candidate URLs (optimistic approach for search results)
+      let cloudAudioUrl = updatedBtn.audioData as unknown as string;
+      let cloudImageUrl = updatedBtn.imageUrl;
 
-    if (user) {
-      if (newAudioFile) {
-        const storageRef = ref(storage, `sounds/${user.uid}/button-${updatedBtn.id}-${Date.now()}`);
-        await uploadBytes(storageRef, newAudioFile);
-        cloudAudioUrl = await getDownloadURL(storageRef);
+      // 2. Perform background uploads if necessary
+      if (user) {
+        if (newAudioFile) {
+          const storageRef = ref(storage, `sounds/${user.uid}/button-${updatedBtn.id}-${Date.now()}`);
+          await uploadBytes(storageRef, newAudioFile);
+          cloudAudioUrl = await getDownloadURL(storageRef);
+        }
+        if (newImageFile) {
+          const imageRef = ref(storage, `images/${user.uid}/button-${updatedBtn.id}-${Date.now()}`);
+          await uploadBytes(imageRef, newImageFile);
+          cloudImageUrl = await getDownloadURL(imageRef);
+        }
       }
-      if (newImageFile) {
-        const imageRef = ref(storage, `images/${user.uid}/button-${updatedBtn.id}-${Date.now()}`);
-        await uploadBytes(imageRef, newImageFile);
-        cloudImageUrl = await getDownloadURL(imageRef);
-      }
+
+      // 3. Update the button and local state
+      const finalBtn = { ...updatedBtn, audioData: cloudAudioUrl as any, imageUrl: cloudImageUrl };
+      const newButtons = buttons.map((b) => (b.id === finalBtn.id ? finalBtn : b));
+      
+      // Update UI matching the new data
+      setButtons(newButtons);
+      
+      // 4. Sync to DB (unawaited for faster UI feel, handled within saveBoardData)
+      saveBoardData(newButtons).catch(e => console.error("Background sync failed:", e));
+      
+    } catch (e) {
+      console.error('Failed to process button edit', e);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      // 5. Always close the modal to regain control
+      setEditingButton(null);
     }
-
-    const finalBtn = { ...updatedBtn, audioData: cloudAudioUrl as any, imageUrl: cloudImageUrl };
-    const newButtons = buttons.map((b) => (b.id === finalBtn.id ? finalBtn : b));
-    await saveBoardData(newButtons);
-    setEditingButton(null);
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
@@ -684,6 +700,7 @@ function EditModal({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(button.imageUrl || null);
   
+  const [isSaving, setIsSaving] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -787,11 +804,19 @@ function EditModal({
     if (imageInputRef.current) imageInputRef.current.value = '';
   };
 
-  const handleSave = () => {
-    stopPreview();
-    // If we have a cloud search URL, we pass it as audioData
-    const finalAudioData = audioUrl || button.audioData;
-    onSave({ ...button, label, color, preloadedAudioUrl, imageUrl, audioData: finalAudioData as any }, audioFile, imageFile);
+  const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      stopPreview();
+      // If we have a cloud search URL, we pass it as audioData
+      const finalAudioData = audioUrl || button.audioData;
+      await onSave({ ...button, label, color, preloadedAudioUrl, imageUrl, audioData: finalAudioData as any }, audioFile, imageFile);
+    } catch (e) {
+      console.error('Save failed', e);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const hasAudio = !!audioFile || !!audioUrl || !!preloadedAudioUrl;
@@ -1057,10 +1082,17 @@ function EditModal({
         <div className="p-6 border-t border-zinc-800 bg-zinc-900/50 shrink-0">
           <button
             onClick={handleSave}
+            disabled={isSaving}
             className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 rounded-xl font-bold text-lg transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)] disabled:opacity-50"
           >
-            <Save className="w-5 h-5" />
-            Save Changes
+            {isSaving ? (
+              <div className="w-6 h-6 border-2 border-zinc-950/20 border-t-zinc-950 rounded-full animate-spin" />
+            ) : (
+              <>
+                <Save className="w-5 h-5" />
+                Save Changes
+              </>
+            )}
           </button>
         </div>
       </motion.div>
